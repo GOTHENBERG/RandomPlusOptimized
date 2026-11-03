@@ -1,0 +1,16 @@
+# Build outputs
+bin/
+obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# IDE / Visual Studio / Rider
+.vs/
+.idea/
+*.userprefs
+
+# Logs and scratch
+*.log
+scratch/
