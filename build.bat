@@ -30,7 +30,7 @@ if %ERRORLEVEL% equ 0 (
     echo.
     echo ========================================================
     echo  [SUCCESS] RandomPlus built successfully!
-    echo  Output: RandomPlus\bin\Release\RandomPlus.dll
+    echo  Output: Resources\1.6\Assemblies\RandomPlus.dll
     echo ========================================================
 ) else (
     echo.

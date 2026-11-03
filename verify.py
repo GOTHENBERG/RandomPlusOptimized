@@ -25,7 +25,7 @@ def check_source_artifacts():
         (r'DisabledWorkTagsBackstoryAndTraits\s*(&\s*[0-9]+|!= null)', 'WorkTags enum invalid comparison or op'),
     ]
 
-    files = glob.glob('RandomPlus/**/*.cs', recursive=True)
+    files = glob.glob('Source/**/*.cs', recursive=True)
     found_issues = 0
 
     for fpath in files:
@@ -33,7 +33,6 @@ def check_source_artifacts():
             for idx, line in enumerate(f, 1):
                 for pat, desc in patterns:
                     if re.search(pat, line):
-                        # Filter out legitimate uses, e.g., Look<int>(..., 1, ...)
                         print(f"  [FAIL] {fpath}:{idx}: {desc} -> {line.strip()}")
                         found_issues += 1
 
@@ -49,7 +48,7 @@ def check_build():
     res = subprocess.run(["cmd.exe", "/c", "build.bat"], capture_output=True, text=True)
     if res.returncode == 0:
         print("  [OK] Build succeeded with 0 errors and 0 warnings.")
-        dll = r"RandomPlus\bin\Release\RandomPlus.dll"
+        dll = os.path.join("Resources", "1.6", "Assemblies", "RandomPlus.dll")
         if os.path.exists(dll):
             size = os.path.getsize(dll)
             print(f"  [OK] Output DLL created: {dll} ({size} bytes)")
