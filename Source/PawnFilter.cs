@@ -1,4 +1,4 @@
-﻿using Verse;
+using Verse;
 using RimWorld;
 using System.Collections.Generic;
 using System.Linq;
@@ -66,23 +66,21 @@ namespace RandomPlus
         public string name;
 
         private List<SkillContainer> skills = new List<SkillContainer>();
-        public IEnumerable<SkillContainer> Skills
+        public List<SkillContainer> Skills
         {
             get
             {
-                foreach (var skill in skills)
-                    yield return skill;
+                return skills;
             }
         }
 
         #region Traits
         private List<TraitContainer> traits = new List<TraitContainer>();
-        public IEnumerable<TraitContainer> Traits
+        public List<TraitContainer> Traits
         {
             get
             {
-                foreach (var trait in traits)
-                    yield return trait;
+                return traits;
             }
         }
 
