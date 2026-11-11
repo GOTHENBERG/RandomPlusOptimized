@@ -7,7 +7,7 @@
 [![Zero-Allocation Hot Loop](https://img.shields.io/badge/GC%20Allocation-0%20Bytes%20in%20Loop-orange.svg)](docs/OPTIMIZATIONS.md)
 
 <p align="center">
-  <img src="Resources/About/Preview.png" alt="RandomPlus Optimized Preview" width="650"/>
+  <img src="Resources/About/preview.png" alt="RandomPlus Optimized Preview" width="650"/>
 </p>
 
 **RandomPlus Optimized** is a high-performance, modernized fork of the beloved [RandomPlus](https://github.com/mastertea/RandomPlus) mod for **RimWorld 1.6 & 1.7 (Waylith Engine)**. It adds an advanced pawn filter and reroll editor to the scenario starting pawn selection screen with **zero-allocation hot loops**, **compiled reflection delegates**, **smart third-party mod compatibility**, and **non-blocking 60 FPS frame-sliced rerolls**.
