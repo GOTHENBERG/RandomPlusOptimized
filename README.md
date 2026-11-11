@@ -1,6 +1,7 @@
 # RandomPlus Optimized (RimWorld 1.6 & 1.7)
 
 [![RimWorld 1.6 & 1.7](https://img.shields.io/badge/RimWorld-1.6%20%7C%201.7-brightgreen.svg)](https://ludeon.com/rimworld/)
+[![Steam Workshop](https://img.shields.io/badge/Steam-Workshop-1b2838.svg?logo=steam)](https://steamcommunity.com/sharedfiles/filedetails/?id=3837613740)
 [![Build Status](https://img.shields.io/badge/Build-Passing-brightgreen.svg)](build.bat)
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Zero-Allocation Hot Loop](https://img.shields.io/badge/GC%20Allocation-0%20Bytes%20in%20Loop-orange.svg)](docs/OPTIMIZATIONS.md)
