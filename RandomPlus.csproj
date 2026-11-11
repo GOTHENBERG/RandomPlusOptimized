@@ -94,4 +94,9 @@
     <Compile Include="Source\**\*.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
+  <Target Name="CopyToV17" AfterTargets="Build">
+    <MakeDir Directories="Resources\1.7\Assemblies\" />
+    <Copy SourceFiles="$(OutputPath)$(TargetFileName)" DestinationFolder="Resources\1.7\Assemblies\" />
+    <Copy SourceFiles="$(OutputPath)$(TargetName).pdb" DestinationFolder="Resources\1.7\Assemblies\" Condition="Exists('$(OutputPath)$(TargetName).pdb')" />
+  </Target>
 </Project>

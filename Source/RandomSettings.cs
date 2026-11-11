@@ -21,6 +21,10 @@ namespace RandomPlus
         private static PropertyInfo startingAndOptionalPawnsPropertyInfo;
 
         // Compiled Delegates for zero-overhead, zero-allocation native invocation
+        public delegate void GeneratePawnRelationsDelegate(Pawn pawn, ref PawnGenerationRequest request);
+        private static GeneratePawnRelationsDelegate generatePawnRelations;
+        private static MethodInfo generatePawnRelationsMethodInfo;
+
         private static Action<Pawn, PawnGenerationRequest> generateRandomAge;
         private static Action<Pawn, PawnGenerationRequest> generateTraits;
         private static Action<Pawn, PawnGenerationRequest> generateSkills;
@@ -29,6 +33,8 @@ namespace RandomPlus
         private static Action<Pawn, XenotypeDef, PawnGenerationRequest> generateGenes;
         private static Func<List<Pawn>> getStartingAndOptionalPawns;
 
+        public static bool IsRerolling { get; set; } = false;
+        public static bool SuppressGearGeneration { get; set; } = false;
         public static int MinSkillRange;
         public static int randomRerollCounter = 0;
         public static List<PawnFilter> pawnFilterList = new List<PawnFilter>();
@@ -48,6 +54,7 @@ namespace RandomPlus
         public static void Init()
         {
             pawnFilter = new PawnFilter();
+            GenerationCompatibility.Install();
 
             try
             {
@@ -106,6 +113,21 @@ namespace RandomPlus
                     getStartingAndOptionalPawns = (Func<List<Pawn>>)Delegate.CreateDelegate(
                         typeof(Func<List<Pawn>>), startingAndOptionalPawnsPropertyInfo.GetGetMethod(true));
                 }
+
+                generatePawnRelationsMethodInfo = typeof(PawnGenerator)
+                    .GetMethod("GeneratePawnRelations", BindingFlags.NonPublic | BindingFlags.Static);
+                if (generatePawnRelationsMethodInfo != null)
+                {
+                    try
+                    {
+                        generatePawnRelations = (GeneratePawnRelationsDelegate)Delegate.CreateDelegate(
+                            typeof(GeneratePawnRelationsDelegate), generatePawnRelationsMethodInfo);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning($"RandomPlus: GeneratePawnRelations delegate fallback to reflection: {ex.Message}");
+                    }
+                }
             }
             catch (Exception ex)
             {
@@ -113,8 +135,28 @@ namespace RandomPlus
             }
         }
 
+        public static void CallGeneratePawnRelations(Pawn pawn, ref PawnGenerationRequest request)
+        {
+            if (generatePawnRelations != null)
+            {
+                generatePawnRelations(pawn, ref request);
+            }
+            else if (generatePawnRelationsMethodInfo != null)
+            {
+                object[] args = new object[] { pawn, request };
+                generatePawnRelationsMethodInfo.Invoke(null, args);
+            }
+        }
+
+        public static List<Pawn> GetStartingAndOptionalPawns()
+        {
+            return getStartingAndOptionalPawns != null 
+                ? getStartingAndOptionalPawns() 
+                : (List<Pawn>)startingAndOptionalPawnsPropertyInfo.GetValue(null);
+        }
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void CallGenerateAge(Pawn pawn, PawnGenerationRequest request)
+        internal static void CallGenerateAge(Pawn pawn, PawnGenerationRequest request)
         {
             if (generateRandomAge != null)
                 generateRandomAge(pawn, request);
@@ -128,7 +170,7 @@ namespace RandomPlus
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void CallGenerateTraits(Pawn pawn, PawnGenerationRequest request)
+        internal static void CallGenerateTraits(Pawn pawn, PawnGenerationRequest request)
         {
             if (generateTraits != null)
                 generateTraits(pawn, request);
@@ -137,7 +179,7 @@ namespace RandomPlus
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void CallGenerateSkills(Pawn pawn, PawnGenerationRequest request)
+        internal static void CallGenerateSkills(Pawn pawn, PawnGenerationRequest request)
         {
             if (generateSkills != null)
                 generateSkills(pawn, request);
@@ -146,7 +188,7 @@ namespace RandomPlus
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void CallGenerateHealth(Pawn pawn, PawnGenerationRequest request)
+        internal static void CallGenerateHealth(Pawn pawn, PawnGenerationRequest request)
         {
             if (generateInitialHediffs != null)
                 generateInitialHediffs(pawn, request);
@@ -155,7 +197,7 @@ namespace RandomPlus
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void CallGenerateBodyType(Pawn pawn, PawnGenerationRequest request)
+        internal static void CallGenerateBodyType(Pawn pawn, PawnGenerationRequest request)
         {
             if (generateBodyType != null)
                 generateBodyType(pawn, request);
@@ -164,7 +206,7 @@ namespace RandomPlus
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static void CallGenerateGenes(Pawn pawn, XenotypeDef xenotype, PawnGenerationRequest request)
+        internal static void CallGenerateGenes(Pawn pawn, XenotypeDef xenotype, PawnGenerationRequest request)
         {
             if (generateGenes != null)
                 generateGenes(pawn, xenotype, request);
@@ -175,6 +217,20 @@ namespace RandomPlus
         public static void ResetRerollCounter()
         {
             randomRerollCounter = 0;
+        }
+
+        public static bool CanRegenerateInPlace(bool inWanderersDialog)
+        {
+            if (ModsConfig.IsActive("erdelf.HumanoidAlienRaces"))
+                return false;
+
+            if (inWanderersDialog)
+                return false;
+
+            if (GenerationCompatibility.AnyForeignPatchOnEntryPoints())
+                return false;
+
+            return true;
         }
 
         public static void Reroll(int pawnIndex)
@@ -193,132 +249,173 @@ namespace RandomPlus
             if (CheckPawnIsSatisfied(pawn))
                 return;
 
-            // Normal reroll mode (or choose wanderers dialog)
-            if (PawnFilter.RerollAlgorithm == PawnFilter.RerollAlgorithmOptions.Normal ||
-                Find.WindowStack.currentlyDrawnWindow is Dialog_ChooseNewWanderers)
+            bool isWanderers = Find.WindowStack.currentlyDrawnWindow is Dialog_ChooseNewWanderers;
+            bool canFastRegenerate = CanRegenerateInPlace(isWanderers);
+
+            IsRerolling = true;
+            try
             {
-                while (randomRerollCounter < PawnFilter.RerollLimit)
+                // Fallback to safe whole-pawn reroll if Normal mode, Wanderers dialog,
+                // or if foreign third-party mods hooked generation entry points
+                if (PawnFilter.RerollAlgorithm == PawnFilter.RerollAlgorithmOptions.Normal ||
+                    !canFastRegenerate)
                 {
-                    if (CheckPawnIsSatisfied(pawn))
-                        break;
+                    bool suppressGear = GenerationCompatibility.GearSuppressionIsSafe();
+                    SuppressGearGeneration = suppressGear;
 
-                    SpouseRelationUtility.Notify_PawnRegenerated(pawn);
-                    pawn = StartingPawnUtility.RandomizeInPlace(pawn);
-
-                    randomRerollCounter++;
-                }
-                return;
-            }
-
-            // Fast Reroll Mode
-            int index = StartingPawnUtility.PawnIndex(pawn);
-            PawnGenerationRequest request = StartingPawnUtility.GetGenerationRequest(index);
-            request.ValidateAndFix();
-
-            Faction faction1;
-            Faction faction2 = request.Faction ?? 
-                (!Find.FactionManager.TryGetRandomNonColonyHumanlikeFaction(out faction1, false, true) 
-                    ? Faction.OfAncients : faction1);
-            
-            XenotypeDef xenotype = ModsConfig.BiotechActive ? PawnGenerator.GetXenotypeForGeneratedPawn(request) : null;
-
-            while (randomRerollCounter < PawnFilter.RerollLimit)
-            {
-                try
-                {
-                    randomRerollCounter++;
-
-                    // Fast-Reject: Gender check if specified
-                    if (pawnFilter.Gender != Gender.None && pawn.gender != Gender.None)
-                    {
-                        pawn.gender = pawnFilter.Gender;
-                    }
-
-                    // Age generation (Zero-allocation via compiled delegate)
-                    pawn.ageTracker = new Pawn_AgeTracker(pawn);
-                    CallGenerateAge(pawn, request);
-                    
-                    if (!CheckAgeIsSatisfied(pawn))
-                        continue;
-
-                    pawn.story.traits = new TraitSet(pawn);
-                    pawn.skills = new Pawn_SkillTracker(pawn);
-
-                    // Backstory generation (required for backstory trait rules & skill bonuses)
-                    PawnBioAndNameGenerator.GiveAppropriateBioAndNameTo(pawn, faction2.def, request, xenotype);
-                    
-                    // Generate Traits & Skills (Zero-allocation via compiled delegates)
-                    CallGenerateTraits(pawn, request);
-                    CallGenerateSkills(pawn, request);
-                    
-                    // Fail-Fast: Skills & Traits check (95%+ rejection rate before health)
-                    if (!CheckTraitsIsSatisfied(pawn) || !CheckSkillsIsSatisfied(pawn))
-                        continue;
-
-                    // Health generation loop: Up to 5 attempts to roll a non-downed/non-dead pawn
-                    bool healthGenSuccess = false;
-                    for (int i = 0; i < 5 && !healthGenSuccess; i++)
-                    {
-                        pawn.health.Reset();
-                        try
-                        {
-                            Find.Scenario.Notify_NewPawnGenerating(pawn, request.Context);
-                            CallGenerateHealth(pawn, request);
-                            
-                            if (!(pawn.Dead || pawn.Destroyed || pawn.Downed))
-                            {
-                                healthGenSuccess = true;
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Log.Warning($"RandomPlus: Health generation failed on attempt {i}: {ex.Message}");
-                        }
-                    }
-                    
-                    if (!healthGenSuccess || !CheckHealthIsSatisfied(pawn))
-                        continue;
-
-                    pawn.workSettings?.EnableAndInitialize();
-                    if (!CheckWorkIsSatisfied(pawn))
-                        continue;
-
-                    // Custom scenario e.g. forced traits
-                    Find.Scenario.Notify_PawnGenerated(pawn, request.Context, true);
-                    if (!CheckPawnIsSatisfied(pawn))
-                        continue;
-
-                    // Genes (Biotech)
-                    if (ModsConfig.BiotechActive)
-                    {
-                        pawn.genes = new Pawn_GeneTracker(pawn);
-                        CallGenerateGenes(pawn, xenotype, request);
-                    }
-                    
-                    CallGenerateBodyType(pawn, request);
-                    GeneratePawnStyle(pawn);
-
-                    // OPTIMIZATION: Redress pawn apparel/weapons ONLY ONCE at the end
-                    // when all filters have successfully matched!
-                    PawnGenerator.RedressPawn(pawn, request);
-
-                    return;
-                }
-                catch (Exception ex)
-                {
-                    Log.Warning($"RandomPlus: Error during pawn generation (attempt {randomRerollCounter}): {ex.Message}");
                     try
                     {
-                        Find.WorldPawns.RemoveAndDiscardPawnViaGC(pawn);
-                        SpouseRelationUtility.Notify_PawnRegenerated(pawn);
-                        pawn = StartingPawnUtility.RandomizeInPlace(pawn);
+                        while (randomRerollCounter < PawnFilter.RerollLimit)
+                        {
+                            if (CheckPawnIsSatisfied(pawn))
+                                break;
+
+                            SpouseRelationUtility.Notify_PawnRegenerated(pawn);
+                            pawn = StartingPawnUtility.RandomizeInPlace(pawn);
+
+                            randomRerollCounter++;
+                        }
                     }
-                    catch (Exception ex2)
+                    finally
                     {
-                        Log.Error($"RandomPlus: Critical error in pawn cleanup: {ex2.Message}");
-                        break;
+                        SuppressGearGeneration = false;
+                    }
+
+                    // Generate relations and gear for final pawn
+                    int pawnIdx = StartingPawnUtility.PawnIndex(pawn);
+                    PawnGenerationRequest finalReq = StartingPawnUtility.GetGenerationRequest(pawnIdx);
+                    IsRerolling = false;
+                    CallGeneratePawnRelations(pawn, ref finalReq);
+                    if (suppressGear)
+                    {
+                        PawnGenerator.RedressPawn(pawn, finalReq);
+                    }
+                    return;
+                }
+
+                // Fast Reroll Mode
+                int index = StartingPawnUtility.PawnIndex(pawn);
+                PawnGenerationRequest request = StartingPawnUtility.GetGenerationRequest(index);
+                request.ValidateAndFix();
+
+                Faction faction1;
+                Faction faction2 = request.Faction ?? 
+                    (!Find.FactionManager.TryGetRandomNonColonyHumanlikeFaction(out faction1, false, true) 
+                        ? Faction.OfAncients : faction1);
+                
+                XenotypeDef xenotype = ModsConfig.BiotechActive ? PawnGenerator.GetXenotypeForGeneratedPawn(request) : null;
+
+                while (randomRerollCounter < PawnFilter.RerollLimit)
+                {
+                    try
+                    {
+                        randomRerollCounter++;
+
+                        // Fast-Reject: Gender check if specified
+                        if (pawnFilter.Gender != Gender.None && pawn.gender != Gender.None)
+                        {
+                            pawn.gender = pawnFilter.Gender;
+                        }
+
+                        // Age generation (Zero-allocation via compiled delegate)
+                        pawn.ageTracker = new Pawn_AgeTracker(pawn);
+                        CallGenerateAge(pawn, request);
+                        
+                        if (!CheckAgeIsSatisfied(pawn))
+                            continue;
+
+                        pawn.story.traits = new TraitSet(pawn);
+                        pawn.skills = new Pawn_SkillTracker(pawn);
+
+                        // Backstory generation (required for backstory trait rules & skill bonuses)
+                        PawnBioAndNameGenerator.GiveAppropriateBioAndNameTo(pawn, faction2.def, request, xenotype);
+                        
+                        // Generate Traits & Skills (Zero-allocation via compiled delegates)
+                        CallGenerateTraits(pawn, request);
+                        CallGenerateSkills(pawn, request);
+                        
+                        // Fail-Fast: Skills & Traits check (95%+ rejection rate before health)
+                        if (!CheckTraitsIsSatisfied(pawn) || !CheckSkillsIsSatisfied(pawn))
+                            continue;
+
+                        // Health generation loop: Up to 5 attempts to roll a non-downed/non-dead pawn
+                        bool healthGenSuccess = false;
+                        for (int i = 0; i < 5 && !healthGenSuccess; i++)
+                        {
+                            pawn.health.Reset();
+                            try
+                            {
+                                Find.Scenario.Notify_NewPawnGenerating(pawn, request.Context);
+                                CallGenerateHealth(pawn, request);
+                                
+                                if (!(pawn.Dead || pawn.Destroyed || pawn.Downed))
+                                {
+                                    healthGenSuccess = true;
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                Log.Warning($"RandomPlus: Health generation failed on attempt {i}: {ex.Message}");
+                            }
+                        }
+                        
+                        if (!healthGenSuccess || !CheckHealthIsSatisfied(pawn))
+                            continue;
+
+                        pawn.workSettings?.EnableAndInitialize();
+                        if (!CheckWorkIsSatisfied(pawn))
+                            continue;
+
+                        // Custom scenario e.g. forced traits
+                        Find.Scenario.Notify_PawnGenerated(pawn, request.Context, true);
+                        if (!CheckPawnIsSatisfied(pawn))
+                            continue;
+
+                        // Genes (Biotech)
+                        if (ModsConfig.BiotechActive)
+                        {
+                            pawn.genes = new Pawn_GeneTracker(pawn);
+                            CallGenerateGenes(pawn, xenotype, request);
+                        }
+                        
+                        CallGenerateBodyType(pawn, request);
+                        GeneratePawnStyle(pawn);
+
+                        // OPTIMIZATION: Generate family relations once for the accepted pawn
+                        IsRerolling = false;
+                        CallGeneratePawnRelations(pawn, ref request);
+
+                        // OPTIMIZATION: Redress pawn apparel/weapons ONLY ONCE at the end
+                        // when all filters have successfully matched!
+                        PawnGenerator.RedressPawn(pawn, request);
+
+                        return;
+                    }
+                    catch (Exception ex)
+                    {
+                        Log.Warning($"RandomPlus: Error during pawn generation (attempt {randomRerollCounter}): {ex.Message}");
+                        try
+                        {
+                            Find.WorldPawns.RemoveAndDiscardPawnViaGC(pawn);
+                            SpouseRelationUtility.Notify_PawnRegenerated(pawn);
+                            pawn = StartingPawnUtility.RandomizeInPlace(pawn);
+                        }
+                        catch (Exception ex2)
+                        {
+                            Log.Error($"RandomPlus: Critical error in pawn cleanup: {ex2.Message}");
+                            break;
+                        }
                     }
                 }
+
+                // If loop finished due to hitting limit, ensure relations & gear for final pawn
+                IsRerolling = false;
+                CallGeneratePawnRelations(pawn, ref request);
+                PawnGenerator.RedressPawn(pawn, request);
+            }
+            finally
+            {
+                IsRerolling = false;
             }
         }
 

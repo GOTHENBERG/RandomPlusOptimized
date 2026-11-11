@@ -27,8 +27,22 @@ namespace RandomPlus
         [HarmonyPostfix]
         static void Postfix()
         {
+            SearchSession.Cancel();
             RandomSettings.Init();
             RandomSettings.ResetRerollCounter();
+        }
+    }
+
+    [HarmonyPatch(typeof(Page_ConfigureStartingPawns), "CanDoNext")]
+    class Patch_ConfigStartingPawns_CanDoNext
+    {
+        [HarmonyPrefix]
+        static void Prefix()
+        {
+            if (SearchSession.IsActive)
+            {
+                SearchSession.Cancel();
+            }
         }
     }
 
@@ -41,19 +55,27 @@ namespace RandomPlus
             if (!TutorSystem.AllowAction((EventPack)nameof(StartingPawnUtility.RandomizePawn)))
                 return false;
             
-            RandomSettings.ResetRerollCounter();
-            
-            int num = 0;
-            do
+            if (SearchSession.IsActive)
             {
-                RandomSettings.Reroll(pawnIndex);
-                num++;
+                SearchSession.Cancel();
+                return false;
             }
-            while (num <= 20 && !StartingPawnUtility.WorkTypeRequirementsSatisfied());
-            
+
+            SearchSession.Start(pawnIndex);
             TutorSystem.Notify_Event((EventPack)nameof(StartingPawnUtility.RandomizePawn));
 
             return false;
+        }
+    }
+
+    // High-performance optimization: Skip expensive family relation generation & world pawn searches during reroll loops
+    [HarmonyPatch(typeof(PawnGenerator), "GeneratePawnRelations")]
+    class Patch_SkipGeneratePawnRelations
+    {
+        [HarmonyPrefix]
+        static bool Prefix(Pawn pawn, ref PawnGenerationRequest request)
+        {
+            return !RandomSettings.IsRerolling;
         }
     }
 
@@ -100,6 +122,9 @@ namespace RandomPlus
 
             if (Widgets.ButtonText(editButtonRect, "RandomPlus.FilterButton".Translate(), true, false, true))
             {
+                if (SearchSession.IsActive)
+                    SearchSession.Cancel();
+
                 var page = new Page_RandomEditor();
                 Find.WindowStack.Add(page);
             }

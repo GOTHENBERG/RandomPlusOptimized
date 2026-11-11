@@ -267,10 +267,17 @@ def run_build(configuration="Release"):
         output = proc.stdout.strip()
         if proc.stderr:
             output += "\n" + proc.stderr.strip()
-        dll_path = os.path.join(WORKSPACE_DIR, "Resources", "1.6", "Assemblies", "RandomPlus.dll")
-        if proc.returncode == 0 and os.path.isfile(dll_path):
-            size = os.path.getsize(dll_path)
-            return True, f"Build SUCCESS ({configuration})\nOutput DLL: {dll_path} ({size} bytes)\nUsing MSBuild: {msbuild}\n\nOutput:\n{output}"
+        dll_16 = os.path.join(WORKSPACE_DIR, "Resources", "1.6", "Assemblies", "RandomPlus.dll")
+        dll_17 = os.path.join(WORKSPACE_DIR, "Resources", "1.7", "Assemblies", "RandomPlus.dll")
+        if proc.returncode == 0 and os.path.isfile(dll_16):
+            size_16 = os.path.getsize(dll_16)
+            size_17 = os.path.getsize(dll_17) if os.path.isfile(dll_17) else 0
+            return True, (
+                f"Build SUCCESS ({configuration})\n"
+                f"- Output 1.6 DLL: {dll_16} ({size_16} bytes)\n"
+                f"- Output 1.7 DLL: {dll_17} ({size_17} bytes)\n"
+                f"Using MSBuild: {msbuild}\n\nOutput:\n{output}"
+            )
         else:
             return False, f"Build FAILED (Exit Code: {proc.returncode})\nUsing MSBuild: {msbuild}\n\nOutput:\n{output}"
     except Exception as e:
@@ -409,8 +416,10 @@ def run_inspect():
             total_loc += lines
             file_stats.append(f"  - {os.path.relpath(f, WORKSPACE_DIR)}: {lines} lines")
 
-    dll_path = os.path.join(WORKSPACE_DIR, "Resources", "1.6", "Assemblies", "RandomPlus.dll")
-    dll_size = f"{os.path.getsize(dll_path)} bytes" if os.path.isfile(dll_path) else "Not built yet"
+    dll_16 = os.path.join(WORKSPACE_DIR, "Resources", "1.6", "Assemblies", "RandomPlus.dll")
+    dll_17 = os.path.join(WORKSPACE_DIR, "Resources", "1.7", "Assemblies", "RandomPlus.dll")
+    size_16 = f"{os.path.getsize(dll_16)} bytes" if os.path.isfile(dll_16) else "Not built yet"
+    size_17 = f"{os.path.getsize(dll_17)} bytes" if os.path.isfile(dll_17) else "Not built yet"
 
     rw_path = find_rimworld()
     ms_path = find_msbuild()
@@ -424,7 +433,8 @@ def run_inspect():
         f"Detected MSBuild: {ms_path or 'NOT FOUND'}\n"
         f"Detected RimWorld: {rw_path or 'NOT FOUND'}\n"
         f"RimWorld Process Running: {rw_running}\n"
-        f"Compiled 1.6 Assembly: {dll_size}\n"
+        f"Compiled 1.6 Assembly: {size_16}\n"
+        f"Compiled 1.7 Assembly: {size_17}\n"
         f"Total C# Source Files: {len(files)}\n"
         f"Total C# Lines of Code: {total_loc}\n"
         f"XML Def & Config Files: {xml_files}\n\n"

@@ -53,6 +53,9 @@
 
 	<RandomPlus.Debug.QuickStartButton>Test[RandomPlus]</RandomPlus.Debug.QuickStartButton>
 	
+	<RandomPlus.SearchOverlay.Title>Searching for candidate...</RandomPlus.SearchOverlay.Title>
+	<RandomPlus.SearchOverlay.StopButton>Stop</RandomPlus.SearchOverlay.StopButton>
+
 	<RandomPlus.Dialog.Close>Close</RandomPlus.Dialog.Close>
 
 </LanguageData>

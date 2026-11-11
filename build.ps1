@@ -29,11 +29,16 @@ Write-Host "[INFO] Using MSBuild: $msbuild" -ForegroundColor Gray
 & $msbuild RandomPlus.sln /p:Configuration=$Configuration /v:minimal /nologo
 
 if ($LASTEXITCODE -eq 0) {
-    $dllPath = "Resources\1.6\Assemblies\RandomPlus.dll"
-    if (Test-Path $dllPath) {
-        $dllInfo = Get-Item $dllPath
+    $dllPath16 = "Resources\1.6\Assemblies\RandomPlus.dll"
+    $dllPath17 = "Resources\1.7\Assemblies\RandomPlus.dll"
+    if (Test-Path $dllPath16) {
+        $dllInfo16 = Get-Item $dllPath16
         Write-Host "`n[SUCCESS] Build completed successfully!" -ForegroundColor Green
-        Write-Host "Output binary: $($dllInfo.FullName) ($($dllInfo.Length) bytes)" -ForegroundColor Green
+        Write-Host "Output 1.6 binary: $($dllInfo16.FullName) ($($dllInfo16.Length) bytes)" -ForegroundColor Green
+        if (Test-Path $dllPath17) {
+            $dllInfo17 = Get-Item $dllPath17
+            Write-Host "Output 1.7 binary: $($dllInfo17.FullName) ($($dllInfo17.Length) bytes)" -ForegroundColor Green
+        }
 
         if ($DeployToRimWorld) {
             $destModDir = "C:\Program Files (x86)\Steam\steamapps\common\RimWorld\Mods\RandomPlusOptimized"
