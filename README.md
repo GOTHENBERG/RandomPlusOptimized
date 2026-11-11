@@ -5,6 +5,10 @@
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 [![Zero-Allocation Hot Loop](https://img.shields.io/badge/GC%20Allocation-0%20Bytes%20in%20Loop-orange.svg)](docs/OPTIMIZATIONS.md)
 
+<p align="center">
+  <img src="Resources/About/Preview.png" alt="RandomPlus Optimized Preview" width="650"/>
+</p>
+
 **RandomPlus Optimized** is a high-performance, modernized fork of the beloved [RandomPlus](https://github.com/mastertea/RandomPlus) mod for **RimWorld 1.6 & 1.7 (Waylith Engine)**. It adds an advanced pawn filter and reroll editor to the scenario starting pawn selection screen with **zero-allocation hot loops**, **compiled reflection delegates**, **smart third-party mod compatibility**, and **non-blocking 60 FPS frame-sliced rerolls**.
 
 ---
@@ -93,7 +97,10 @@ It exposes tools to compile, verify, clean, and deploy the mod directly from the
 ## 📄 License & Credits
 
 - **Upstream Original Mod:** Created by [mastertea](https://github.com/mastertea/RandomPlus) under the MIT License.
-- **RandomPlus Optimized:** Licensed under the **GNU General Public License v3.0 (GPL-3.0)** with full attribution to upstream authors.
+- **Community Contributions & Architecture Inspiration:** Special thanks to open-source community contributors whose research and prototypes inspired parts of this modernization:
+  - [TrevorS](https://github.com/TrevorS/RandomPlusPlus) — Dynamic Harmony patch inspection for non-breaking mod compatibility and frame steadiness concepts.
+  - [ppuya13](https://github.com/ppuya13/FasterRandomPlus) — Insight on skipping redundant world-pawn relation generation during rerolls.
+- **RandomPlus Optimized:** Developed and maintained by **GOTHENBERG**, licensed under the **GNU General Public License v3.0 (GPL-3.0)** with full attribution to upstream authors.
 
 ### Why GPL-3.0?
 This project uses GPL-3.0 ("Copyleft") to ensure that:
