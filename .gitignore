@@ -14,3 +14,7 @@ obj/
 # Logs and scratch
 *.log
 scratch/
+
+# Python cache
+__pycache__/
+*.pyc

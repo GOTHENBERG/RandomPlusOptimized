@@ -44,18 +44,28 @@ def check_source_artifacts():
         return False
 
 def check_build():
-    print("\n=== Checking MSBuild build ===")
+    print("\n=== Checking MSBuild build & Binary Integrity ===")
     res = subprocess.run(["cmd.exe", "/c", "build.bat"], capture_output=True, text=True)
     if res.returncode == 0:
         print("  [OK] Build succeeded with 0 errors and 0 warnings.")
-        dll = os.path.join("Resources", "1.6", "Assemblies", "RandomPlus.dll")
-        if os.path.exists(dll):
-            size = os.path.getsize(dll)
-            print(f"  [OK] Output DLL created: {dll} ({size} bytes)")
-            return True
-        else:
-            print("  [FAIL] DLL not found after build.")
-            return False
+        dll_16 = os.path.join("Resources", "1.6", "Assemblies", "RandomPlus.dll")
+        dll_17 = os.path.join("Resources", "1.7", "Assemblies", "RandomPlus.dll")
+        
+        ok = True
+        for name, path in [("1.6", dll_16), ("1.7", dll_17)]:
+            if os.path.exists(path):
+                size = os.path.getsize(path)
+                with open(path, "rb") as f:
+                    magic = f.read(2)
+                if magic == b"MZ":
+                    print(f"  [OK] Output {name} DLL: {path} ({size} bytes, Valid PE header)")
+                else:
+                    print(f"  [FAIL] Output {name} DLL has invalid header: {magic}")
+                    ok = False
+            else:
+                print(f"  [FAIL] Output {name} DLL not found after build.")
+                ok = False
+        return ok
     else:
         print(f"  [FAIL] Build failed:\n{res.stdout}\n{res.stderr}")
         return False

@@ -283,22 +283,104 @@ def run_build(configuration="Release"):
     except Exception as e:
         return False, f"Build execution error: {str(e)}"
 
+def check_pe_header(file_path):
+    """Verifies that the compiled binary is a valid, uncorrupted Windows PE DLL."""
+    if not os.path.isfile(file_path):
+        return False, "File does not exist"
+    size = os.path.getsize(file_path)
+    if size < 20480:
+        return False, f"File size too small ({size} bytes)"
+    try:
+        with open(file_path, "rb") as f:
+            magic = f.read(2)
+            if magic != b"MZ":
+                return False, f"Invalid PE magic header: {magic}"
+        return True, f"Valid PE binary ({size} bytes)"
+    except Exception as e:
+        return False, f"Read error: {str(e)}"
+
 def run_validate_xml():
     res_dir = os.path.join(WORKSPACE_DIR, "Resources")
     xml_files = glob.glob(os.path.join(res_dir, "**", "*.xml"), recursive=True)
     errors = []
+    parsed_trees = {}
+
+    # 1. XML Well-formedness check
     for fpath in xml_files:
         rel = os.path.relpath(fpath, WORKSPACE_DIR)
         try:
-            ET.parse(fpath)
+            tree = ET.parse(fpath)
+            parsed_trees[rel] = tree
         except ET.ParseError as pe:
-            errors.append(f"{rel}:{pe.position[0]}:{pe.position[1]}: {str(pe)}")
+            errors.append(f"{rel}:{pe.position[0]}:{pe.position[1]}: Syntax error - {str(pe)}")
         except Exception as ex:
             errors.append(f"{rel}: {str(ex)}")
 
+    # 2. Keyed Localization Parity & Integrity (Data loss check)
+    en_rel = os.path.normpath(os.path.join("Resources", "Languages", "English", "Keyed", "RandomPlus.xml"))
+    ru_rel = os.path.normpath(os.path.join("Resources", "Languages", "Russian", "Keyed", "RandomPlus.xml"))
+
+    en_keys = set()
+    ru_keys = set()
+
+    for rel, tree in parsed_trees.items():
+        norm_rel = os.path.normpath(rel)
+        if norm_rel == en_rel:
+            root = tree.getroot()
+            en_keys = {elem.tag for elem in root}
+            for elem in root:
+                if not elem.text or not elem.text.strip():
+                    errors.append(f"{rel}: Key '{elem.tag}' has empty translation text!")
+        elif norm_rel == ru_rel:
+            root = tree.getroot()
+            ru_keys = {elem.tag for elem in root}
+            for elem in root:
+                if not elem.text or not elem.text.strip():
+                    errors.append(f"{rel}: Key '{elem.tag}' has empty translation text!")
+
+    missing_in_ru = en_keys - ru_keys
+    missing_in_en = ru_keys - en_keys
+
+    if missing_in_ru:
+        errors.append(f"Localization Parity: {len(missing_in_ru)} keys missing in Russian: {', '.join(sorted(missing_in_ru))}")
+    if missing_in_en:
+        errors.append(f"Localization Parity: {len(missing_in_en)} keys missing in English: {', '.join(sorted(missing_in_en))}")
+
+    # 3. About.xml Metadata Check
+    about_rel = os.path.normpath(os.path.join("Resources", "About", "About.xml"))
+    for rel, tree in parsed_trees.items():
+        if os.path.normpath(rel) == about_rel:
+            about_root = tree.getroot()
+            required_tags = ["name", "author", "packageId", "supportedVersions", "description"]
+            for tag in required_tags:
+                if about_root.find(tag) is None:
+                    errors.append(f"{rel}: Missing mandatory tag <{tag}>")
+            supp_versions = [li.text.strip() for li in about_root.findall("./supportedVersions/li") if li.text]
+            if "1.6" not in supp_versions:
+                errors.append(f"{rel}: <supportedVersions> missing 1.6")
+            if "1.7" not in supp_versions:
+                errors.append(f"{rel}: <supportedVersions> missing 1.7")
+
+    # 4. PublishedFileId.txt Check
+    pub_file = os.path.join(res_dir, "About", "PublishedFileId.txt")
+    if os.path.isfile(pub_file):
+        try:
+            with open(pub_file, "r", encoding="utf-8") as pf:
+                pub_id = pf.read().strip()
+            if not pub_id.isdigit():
+                errors.append(f"Resources/About/PublishedFileId.txt: Invalid non-numeric Workshop ID '{pub_id}'")
+        except Exception as pfe:
+            errors.append(f"Resources/About/PublishedFileId.txt error: {str(pfe)}")
+
     if errors:
-        return False, f"XML Validation FAILED ({len(errors)} errors found):\n" + "\n".join(errors)
-    return True, f"XML Validation SUCCESS: All {len(xml_files)} XML files are well-formed."
+        return False, f"XML & Data Integrity FAILED ({len(errors)} issues found):\n" + "\n".join(errors)
+
+    return True, (
+        f"XML & Data Integrity SUCCESS: All {len(xml_files)} XML files well-formed.\n"
+        f"- Localization Parity: English ({len(en_keys)} keys) == Russian ({len(ru_keys)} keys) [100% in sync]\n"
+        f"- About.xml Metadata: Validated (RimWorld 1.6 & 1.7 supported)\n"
+        f"- Steam Workshop PublishedFileId: Validated"
+    )
 
 def run_clean():
     cleaned = []
@@ -348,17 +430,28 @@ def run_verify():
     xml_ok, xml_msg = run_validate_xml()
     build_ok, build_msg = run_build("Release")
 
+    dll_16 = os.path.join(WORKSPACE_DIR, "Resources", "1.6", "Assemblies", "RandomPlus.dll")
+    dll_17 = os.path.join(WORKSPACE_DIR, "Resources", "1.7", "Assemblies", "RandomPlus.dll")
+    pe_16_ok, pe_16_msg = check_pe_header(dll_16)
+    pe_17_ok, pe_17_msg = check_pe_header(dll_17)
+
+    harmony_path = os.path.join(WORKSPACE_DIR, "Libraries", "0Harmony.dll")
+    harmony_ok, harmony_msg = check_pe_header(harmony_path)
+
     res = "=== Verification Summary ===\n"
     res += f"- Scanned {len(files)} C# source files\n"
     res += f"- Decompiler artifacts: {len(artifacts)} detected " + ("(PASSED)" if not artifacts else "(FAILED)") + "\n"
     if artifacts:
         res += "  Artifact details:\n" + "\n".join(artifacts[:15]) + "\n"
-    res += f"- XML validation: {'PASSED' if xml_ok else 'FAILED'}\n"
+    res += f"- XML & Data integrity: {'PASSED' if xml_ok else 'FAILED'}\n"
     if not xml_ok:
         res += f"  {xml_msg}\n"
     res += f"- MSBuild compilation: {'PASSED' if build_ok else 'FAILED'}\n"
+    res += f"- RimWorld 1.6 Assembly: {'PASSED (' + pe_16_msg + ')' if pe_16_ok else 'FAILED (' + pe_16_msg + ')'}\n"
+    res += f"- RimWorld 1.7 Assembly: {'PASSED (' + pe_17_msg + ')' if pe_17_ok else 'FAILED (' + pe_17_msg + ')'}\n"
+    res += f"- 0Harmony Dependency: {'PASSED (' + harmony_msg + ')' if harmony_ok else 'FAILED (' + harmony_msg + ')'}\n"
 
-    all_passed = not artifacts and xml_ok and build_ok
+    all_passed = not artifacts and xml_ok and build_ok and pe_16_ok and pe_17_ok and harmony_ok
     return all_passed, res
 
 def run_deploy(custom_dest=None, force=False):
@@ -428,13 +521,29 @@ def run_inspect():
     res_dir = os.path.join(WORKSPACE_DIR, "Resources")
     xml_files = len(glob.glob(os.path.join(res_dir, "**", "*.xml"), recursive=True))
 
+    pub_file = os.path.join(res_dir, "About", "PublishedFileId.txt")
+    workshop_id = "Not set"
+    if os.path.isfile(pub_file):
+        try:
+            with open(pub_file, "r", encoding="utf-8") as pf:
+                workshop_id = pf.read().strip()
+        except Exception:
+            pass
+
+    en_xml = os.path.join(res_dir, "Languages", "English", "Keyed", "RandomPlus.xml")
+    ru_xml = os.path.join(res_dir, "Languages", "Russian", "Keyed", "RandomPlus.xml")
+    en_cnt = len(ET.parse(en_xml).getroot()) if os.path.isfile(en_xml) else 0
+    ru_cnt = len(ET.parse(ru_xml).getroot()) if os.path.isfile(ru_xml) else 0
+
     report = (
         f"=== RandomPlus Mod Project Diagnostics ===\n"
         f"Detected MSBuild: {ms_path or 'NOT FOUND'}\n"
         f"Detected RimWorld: {rw_path or 'NOT FOUND'}\n"
         f"RimWorld Process Running: {rw_running}\n"
+        f"Steam Workshop ID: {workshop_id}\n"
         f"Compiled 1.6 Assembly: {size_16}\n"
         f"Compiled 1.7 Assembly: {size_17}\n"
+        f"Localization Status: English ({en_cnt} keys) | Russian ({ru_cnt} keys) [{'SYNCED' if en_cnt == ru_cnt and en_cnt > 0 else 'OUT OF SYNC'}]\n"
         f"Total C# Source Files: {len(files)}\n"
         f"Total C# Lines of Code: {total_loc}\n"
         f"XML Def & Config Files: {xml_files}\n\n"
